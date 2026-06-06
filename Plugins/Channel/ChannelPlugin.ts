@@ -164,6 +164,89 @@ export class ChannelPlugin {
             return []; // No custom tools for GitHub channel sessions
         }
 
+        // ──────────────────────────────────────────────────────────────────
+        // NEW: getIssueDetails — fetch full context of an Issue or PR
+        // ──────────────────────────────────────────────────────────────────
+        if (action === 'getIssueDetails') {
+            const { owner, repo, number, type } = payload as { owner: string; repo: string; number: string | number; type: 'issue' | 'pull' };
+            const pat = this.config.GITHUB_PAT;
+
+            const headers: Record<string, string> = {
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'Urano-Github-Agent',
+            };
+            if (pat) headers['Authorization'] = `token ${pat}`;
+
+            const num = typeof number === 'string' ? parseInt(number, 10) : number;
+
+            // Fetch the issue/PR details
+            const detailUrl = `https://api.github.com/repos/${owner}/${repo}/issues/${num}`;
+            const detailRes = await fetch(detailUrl, { headers });
+            if (!detailRes.ok) {
+                throw new Error(`[GithubAgent/Channel] getIssueDetails error (${detailRes.status}): ${await detailRes.text()}`);
+            }
+            const detail = await detailRes.json() as any;
+
+            // Fetch recent comments (up to 10)
+            const commentsUrl = `https://api.github.com/repos/${owner}/${repo}/issues/${num}/comments?per_page=10&sort=created&direction=desc`;
+            const commentsRes = await fetch(commentsUrl, { headers });
+            const comments = commentsRes.ok ? (await commentsRes.json() as any[]) : [];
+
+            return {
+                number: detail.number,
+                title: detail.title,
+                body: detail.body || '',
+                state: detail.state,
+                type: type || (detail.pull_request ? 'pull' : 'issue'),
+                author: detail.user?.login,
+                labels: (detail.labels || []).map((l: any) => l.name),
+                created_at: detail.created_at,
+                updated_at: detail.updated_at,
+                html_url: detail.html_url,
+                comments_count: detail.comments,
+                recent_comments: comments.slice(0, 5).map((c: any) => ({
+                    author: c.user?.login,
+                    body: c.body?.substring(0, 500),
+                    created_at: c.created_at,
+                })),
+            };
+        }
+
+        // ──────────────────────────────────────────────────────────────────
+        // NEW: listPRFiles — list changed files in a Pull Request
+        // ──────────────────────────────────────────────────────────────────
+        if (action === 'listPRFiles') {
+            const { owner, repo, pull_number } = payload as { owner: string; repo: string; pull_number: string | number };
+            const pat = this.config.GITHUB_PAT;
+
+            const headers: Record<string, string> = {
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'Urano-Github-Agent',
+            };
+            if (pat) headers['Authorization'] = `token ${pat}`;
+
+            const num = typeof pull_number === 'string' ? parseInt(pull_number, 10) : pull_number;
+            const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${num}/files?per_page=100`;
+            const res = await fetch(url, { headers });
+
+            if (!res.ok) {
+                throw new Error(`[GithubAgent/Channel] listPRFiles error (${res.status}): ${await res.text()}`);
+            }
+
+            const files = await res.json() as any[];
+            return {
+                total_files: files.length,
+                files: files.map((f: any) => ({
+                    filename: f.filename,
+                    status: f.status,         // added | modified | removed | renamed
+                    additions: f.additions,
+                    deletions: f.deletions,
+                    changes: f.changes,
+                    patch_preview: f.patch ? f.patch.substring(0, 400) : null,
+                })),
+            };
+        }
+
         throw new Error(`Action ${action} not implemented in ChannelPlugin`);
     }
 }
