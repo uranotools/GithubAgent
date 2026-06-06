@@ -54,6 +54,62 @@ sequenceDiagram
 2. **Badges Dinámicos Interactivos**: Al recibir un evento de GitHub, el cliente de Urano renderiza de forma premium el repositorio origen (`🐙 owner/repo`) y el identificador (`PR #12` o `Issue #34`) en la barra del chat del agente.
 3. **Optimización de Contexto**: El plugin descarga el diff del Pull Request en tiempo real y trunca el texto inteligentemente si este excede los límites físicos de tokens, garantizando que el LLM nunca falle por desbordamiento de contexto.
 
+## 🔌 Contratos de Entrada y Salida (E/S)
+
+El plugin funciona como un transductor entre la API de Webhooks de GitHub y el motor conversacional de Urano. A continuación se detallan las interfaces y payloads de entrada/salida.
+
+### 📥 1. Entrada: Webhooks de GitHub (Input)
+El endpoint expuesto por Urano recibe las notificaciones de eventos directamente desde GitHub.
+
+#### Cabeceras Esperadas
+* `x-github-event`: Tipo de evento de GitHub (`pull_request`, `issue_comment`, `pull_request_review_comment`).
+* `x-hub-signature-256`: Firma HMAC-SHA256 del payload (validada si `GITHUB_WEBHOOK_SECRET` está configurado).
+
+#### Eventos y Payload Soportados
+* **Pull Request** (`pull_request`):
+  * **Acciones**: `opened` (creado) o `synchronize` (nuevos commits / actualizaciones).
+  * **Campos clave**: `pull_request.diff_url`, `pull_request.title`, `pull_request.body`, `number`, `repository.full_name`.
+* **Comentarios en Issues o PRs** (`issue_comment`, `pull_request_review_comment`):
+  * **Acciones**: `created`.
+  * **Campos clave**: `comment.body`, `issue.number` (o `pull_request.number`), `repository.full_name`.
+
+#### 🛡️ Filtro de Descarte
+Para evitar bucles infinitos de agentes comentando sobre sí mismos, se descarta silenciosamente (retornando `{ from: '', text: '' }`) cualquier webhook cuyo emisor (`sender`):
+* Sea de tipo `Bot`.
+* Tenga un login que contenga `[bot]` o la palabra `urano` (case-insensitive).
+
+---
+
+### 📤 2. Salida al Core: Parsed Message
+Tras parsear el webhook, el plugin emite un objeto estructurado `ParsedMessage` al Core de Urano:
+
+| Evento Original | Formato del `from` (Identificador de Sesión) | Formato del `text` (Mensaje para el Agente) |
+| :--- | :--- | :--- |
+| **Pull Request** | `github:<owner>/<repo>/pull/<prNumber>` | `/review-pr <diff_url> <titulo_pr>\n\n<descripcion>` |
+| **Comment** | `github:<owner>/<repo>/(pull\|issue)/<number>` | `<cuerpo_del_comentario>` |
+
+> [!NOTE]
+> El identificador `from` es el que el Core de Urano utiliza como `chatId` para recuperar o inicializar el contexto de la sesión. Todos los webhooks que compartan el mismo `from` irán al mismo hilo conversacional.
+
+---
+
+### ⚙️ 3. Acciones de Canal y MCP (Salidas al LLM / Respuestas)
+El plugin expone capacidades de comunicación y lectura que el LLM puede invocar en cualquier momento:
+
+#### `sendReply` (Publicar comentario)
+* **Destinatario (`to`)**: Identificador de sesión con formato `github:<owner>/<repo>/(pull|issue)/<number>`.
+* **Mensaje (`text`)**: El contenido del comentario en Markdown.
+* **Acción**: Realiza un `POST` al endpoint de la API de GitHub:
+  `https://api.github.com/repos/{owner}/{repo}/issues/{number}/comments`
+
+#### `getIssueDetails` (Leer detalles de Issue/PR)
+* **Parámetros**: `{ owner, repo, number, type }`
+* **Acción**: Realiza un `GET` del Issue/PR y obtiene los metadatos básicos junto con los últimos 5 comentarios para dar contexto histórico al agente.
+
+#### `listPRFiles` (Listar archivos de un PR)
+* **Parámetros**: `{ owner, repo, pull_number }`
+* **Acción**: Consulta los archivos afectados por el Pull Request para que el agente sepa qué archivos inspeccionar en detalle.
+
 ---
 
 ## 🚀 Instalación en Urano
