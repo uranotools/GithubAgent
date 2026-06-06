@@ -30,6 +30,14 @@ export const GithubAgentConfig = {
             placeholder: 'MiSecretoGithub',
             description: 'Secreto de webhook para verificar las firmas HMAC SHA-256 de las peticiones entrantes de GitHub.',
             required: false,
+        },
+        {
+            name: 'TARGET_AGENT',
+            title: 'ID del Agente Enrutador',
+            type: 'text',
+            placeholder: 'Ej: ceo o mi_agente_github',
+            description: 'ID del agente de Urano que procesará e interactuará con los mensajes y reviews de este canal de GitHub.',
+            required: false,
         }
     ],
 
