@@ -34,9 +34,9 @@ export const GithubAgentConfig = {
         {
             name: 'TARGET_AGENT',
             title: 'ID del Agente Enrutador',
-            type: 'text',
-            placeholder: 'Ej: ceo o mi_agente_github',
-            description: 'ID del agente de Urano que procesará e interactuará con los mensajes y reviews de este canal de GitHub.',
+            type: 'local_agent_select',
+            placeholder: 'Selecciona un agente...',
+            description: 'Selecciona el agente de Urano que procesará e interactuará con los mensajes y reviews de este canal de GitHub.',
             required: false,
         }
     ],
